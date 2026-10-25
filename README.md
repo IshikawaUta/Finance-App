@@ -249,4 +249,4 @@ backend rejects the operation with `WALLET_NOT_EMPTY`.
 
 ## License
 
-MIT
+FinanceApp is released under the [MIT License](LICENSE).
