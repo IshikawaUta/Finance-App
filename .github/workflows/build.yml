@@ -1,0 +1,211 @@
+name: Build desktop releases
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional tag to publish (for example v0.1.0)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.12"
+  PBS_RELEASE: "20261021"
+  PBS_PYTHON: "3.12.15"
+
+jobs:
+  test:
+    name: Lint & test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Python dependencies
+        env:
+          PYTAURI_STANDALONE: "1"
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest ruff
+
+      - name: Ruff
+        run: python -m ruff check src-python tests
+
+      - name: Pytest
+        run: python -m pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix src-frontend
+
+      - name: Svelte check
+        run: npm run check
+
+      - name: Build static frontend
+        run: npm run build
+
+  build:
+    name: ${{ matrix.label }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-x64
+          - label: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: windows-x64
+          - label: macOS Apple Silicon
+            os: macos-15
+            target: aarch64-apple-darwin
+            artifact: macos-arm64
+          - label: macOS Intel
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: macos-x64
+    env:
+      # Baked into the Rust binary at compile time and exposed to Python at
+      # runtime. Users can still override it from the login setup dialog or
+      # Settings → Database.
+      FINANCE_MONGODB_URI: ${{ secrets.FINANCE_MONGODB_URI }}
+      FINANCE_MONGODB_DB: finance_app
+      FINANCE_TIMEZONE: Asia/Jakarta
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          cache-on-failure: true
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libxdo-dev \
+            libfuse2
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix src-frontend
+
+      - name: Prepare portable Python
+        run: python scripts/prepare_pyembed.py --target ${{ matrix.target }}
+
+      - name: Patch libpython install name (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          LIBPYTHON=$(ls src-tauri/pyembed/python/lib/libpython3.*.dylib | head -n 1)
+          install_name_tool -id '@rpath/libpython3.12.dylib' "$LIBPYTHON"
+
+      - name: Build and bundle (Linux)
+        if: runner.os == 'Linux'
+        env:
+          PYO3_PYTHON: ${{ github.workspace }}/src-tauri/pyembed/python/bin/python3
+          RUSTFLAGS: "-C link-arg=-Wl,-rpath,$ORIGIN/../lib/FinanceApp/lib -C link-arg=-Wl,-rpath,$ORIGIN/../lib -L ${{ github.workspace }}/src-tauri/pyembed/python/lib"
+        run: npm run tauri -- build --config=src-tauri/tauri.bundle.json --bundles deb,appimage -- --profile bundle-release
+
+      - name: Build and bundle (macOS)
+        if: runner.os == 'macOS'
+        env:
+          PYO3_PYTHON: ${{ github.workspace }}/src-tauri/pyembed/python/bin/python3
+          RUSTFLAGS: "-C link-arg=-Wl,-rpath,@executable_path/../Resources/lib -L ${{ github.workspace }}/src-tauri/pyembed/python/lib"
+        run: npm run tauri -- build --config=src-tauri/tauri.bundle.json --bundles dmg -- --profile bundle-release
+
+      - name: Build and bundle (Windows)
+        if: runner.os == 'Windows'
+        env:
+          PYO3_PYTHON: ${{ github.workspace }}\src-tauri\pyembed\python\python.exe
+        run: npm run tauri -- build --config=src-tauri/tauri.bundle.json --bundles nsis -- --profile bundle-release
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: FinanceApp-${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            src-tauri/target/bundle-release/bundle/nsis/*.exe
+            src-tauri/target/bundle-release/bundle/dmg/*.dmg
+            src-tauri/target/bundle-release/bundle/appimage/*.AppImage
+            src-tauri/target/bundle-release/bundle/deb/*.deb
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List installers
+        run: find artifacts -type f -maxdepth 4 -print | sort
+
+      - name: Create or update the release for the tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: FinanceApp ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.deb
+            artifacts/**/*.AppImage
+            artifacts/**/*.dmg

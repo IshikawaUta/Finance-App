@@ -1,0 +1,51 @@
+[package]
+name = "finance-app"
+version = "0.1.0"
+description = "FinanceApp — cross-platform personal finance desktop application"
+authors = ["FinanceApp"]
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+
+[lib]
+# The `_lib` suffix avoids a name clash with the binary on Windows.
+name = "finance_app_lib"
+# `cdylib` is required when the crate is loaded as a Python extension module
+# during development. Standalone builds use the binary below instead.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "finance-app"
+path = "src/main.rs"
+# Only build the embedded-interpreter binary for standalone builds. During
+# `tauri dev` the extension module is loaded by the Python interpreter.
+required-features = ["pytauri/standalone"]
+
+[build-dependencies]
+# Keep these pins aligned with PyTauri 0.8.0. Tauri 2.12 changed
+# `WindowEffect` to a non-exhaustive enum, which pytauri-core 0.8 cannot match.
+tauri-build = { version = "=2.4.1", features = [] }
+
+[dependencies]
+tauri = { version = "=2.8.5", features = [] }
+# Pin the shared Tauri utility crate to the 2.8 series for the same reason.
+tauri-utils = { version = "=2.8.3" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pyo3 = { version = "0.25", features = [] }
+pytauri = { version = "0.8" }
+# Direct dependency so tauri-build can discover the plugin's ACL permissions
+# (`pytauri:default`). pytauri already depends on it, but transitive build
+# scripts are not scanned when generating the capability schema.
+tauri-plugin-pytauri = { version = "0.8" }
+
+# Standalone bundles use a dedicated profile so that `tauri dev` never picks
+# up the embedded Python environment copied into `target/release`.
+[profile.bundle-dev]
+inherits = "dev"
+
+[profile.bundle-release]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = true

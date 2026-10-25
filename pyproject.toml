@@ -1,0 +1,80 @@
+[project]
+name = "finance-app"
+version = "0.1.0"
+description = "Cross-platform personal finance desktop app (PyTauri + SvelteKit + MongoDB)"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "FinanceApp" }]
+dependencies = [
+    # PyTauri runtime + IPC serialization
+    "pytauri == 0.8.*",
+    "pydantic >= 2.9, < 3",
+    "email-validator >= 2.2, < 3",
+    "anyio >= 4.6, < 5",
+    # Database
+    "beanie >= 2.2, < 3",
+    # Auth
+    "pyjwt >= 2.10, < 3",
+    "argon2-cffi >= 23.1, < 26",
+    # Runtime configuration
+    "platformdirs >= 4.3, < 5",
+    "python-dotenv >= 1.0, < 2",
+    # Windows ships no IANA tz database
+    "tzdata >= 2024.1",
+]
+
+[project.entry-points.pytauri]
+# pytauri resolves the Rust extension module through this entry point.
+ext_mod = "finance_app.ext_mod"
+
+[dependency-groups]
+dev = [
+    "pytest >= 8.3",
+    "ruff >= 0.8",
+]
+
+[build-system]
+requires = ["setuptools >= 80", "setuptools-rust >= 1.11, < 2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src-python"]
+
+[tool.setuptools.package-data]
+finance_app = ["py.typed"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src-python", "tests"]
+extend-exclude = ["src-tauri/pyembed", "src-tauri/frontend", "src-frontend", "target"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "BLE"]
+ignore = [
+    "E501",  # handled by the formatter
+    "RUF001", "RUF002", "RUF003",  # Indonesian text uses non-ASCII punctuation
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["finance_app"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src-python"]
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning:finance_app.*"]
+
+[tool.pyright]
+include = ["src-python", "tests"]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/target",
+    "**/dist",
+    "**/.venv",
+    "**/.*",
+    "src-tauri/pyembed/",
+    "src-frontend/",
+]
+pythonVersion = "3.10"

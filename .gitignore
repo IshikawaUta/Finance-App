@@ -1,0 +1,41 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+src-frontend/build/
+src-frontend/.svelte-kit/
+*.tsbuildinfo
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/pyembed/
+src-tauri/frontend/
+
+# Environment & local secrets
+.env
+.env.*
+!.env.example
+*.key
+config.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Logs
+*.log
+npm-debug.log*

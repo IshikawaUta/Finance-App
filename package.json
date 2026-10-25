@@ -1,0 +1,18 @@
+{
+  "name": "finance-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-platform personal finance desktop app",
+  "scripts": {
+    "dev": "npm --prefix src-frontend run dev",
+    "build": "npm --prefix src-frontend run build",
+    "check": "npm --prefix src-frontend run check",
+    "format": "npm --prefix src-frontend run format",
+    "tauri": "tauri",
+    "desktop": "bash scripts/run-desktop.sh",
+    "install:frontend": "npm --prefix src-frontend install"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}
